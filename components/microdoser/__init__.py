@@ -1,23 +1,33 @@
-# components/microdoser/__init__.py
-
-# --- IMPORTS ---
 from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import time as time_, pcf8574
-from esphome.const import CONF_ID
+from esphome.components import time as time_
+from esphome.components import output
+from esphome.components import button, number, select
+from esphome.const import CONF_ID, CONF_TIME_ID
 
-# --- CONSTANTS & CUSTOM FIELDS ---
+CODEOWNERS = ["@r0bb10"]
+
+DEPENDENCIES = ["time"]
+
+# --- CONSTANTS ---
 CONF_SCHEDULE = "schedule"
-CONF_I2C_PIN = "i2c_pin"
 CONF_CALIBRATION = "calibration_ml_per_sec"
 CONF_DAILY_DOSE = "daily_dose_ml"
+CONF_PUMPS = "pumps"
+CONF_PUMP_OUTPUT = "output_id"
+CONF_MIN_DOSE = "min_ml_dose_each"
+CONF_OFFSET_MIN = "dosing_offset_min"
+CONF_TARGET_SELECT = "calibration_target"
+CONF_RESULT_NUMBER = "calibration_result_ml"
+CONF_CALIBRATE_BUTTON = "calibrate_pump_btn"
 
 # --- DECLARE NAMESPACE + CLASS ---
 microdoser_ns = cg.esphome_ns.namespace("microdoser")
 MicrodoserPump = microdoser_ns.class_("MicrodoserPump", cg.Component)
+MicrodoserHub = microdoser_ns.class_("MicrodoserHub", cg.Component)
 
-# --- SCHEDULE FORMAT (hour, minute) ---
+# --- SCHEDULE FORMAT ---
 SCHEDULE_SCHEMA = cv.Schema({
     cv.Required("hour"): cv.int_range(min=0, max=23),
     cv.Required("minute"): cv.int_range(min=0, max=59),
@@ -25,24 +35,70 @@ SCHEDULE_SCHEMA = cv.Schema({
 
 # --- YAML CONFIG VALIDATION ---
 CONFIG_SCHEMA = cv.Schema({
-    cv.GenerateID(): cv.declare_id(MicrodoserPump),
-    cv.Required(CONF_I2C_PIN): cv.int_,
-    cv.Required(CONF_CALIBRATION): cv.positive_float,
-    cv.Required(CONF_DAILY_DOSE): cv.positive_float,
-    cv.Required(CONF_SCHEDULE): cv.ensure_list(SCHEDULE_SCHEMA),
+    cv.GenerateID(): cv.declare_id(MicrodoserHub),
+    cv.Required(CONF_TIME_ID): cv.use_id(time_.RealTimeClock),
+    cv.Required(CONF_CALIBRATE_BUTTON): cv.use_id(button.Button),
+    cv.Required(CONF_RESULT_NUMBER): cv.use_id(number.Number),
+    cv.Required(CONF_TARGET_SELECT): cv.use_id(select.Select),
+    cv.Optional(CONF_OFFSET_MIN, default=5): cv.positive_int,
+    cv.Required(CONF_PUMPS): cv.ensure_list(
+        cv.Schema({
+            cv.GenerateID(): cv.declare_id(MicrodoserPump),
+            cv.Required(CONF_PUMP_OUTPUT): cv.use_id(output.BinaryOutput),
+            cv.Required(CONF_CALIBRATION): cv.positive_float,
+            cv.Required(CONF_DAILY_DOSE): cv.positive_float,
+            cv.Required(CONF_SCHEDULE): cv.Any(
+                cv.ensure_list(SCHEDULE_SCHEMA),
+                cv.one_of("auto", lower=True)
+            ),
+            cv.Optional(CONF_MIN_DOSE): cv.positive_float,
+        })
+    )
 }).extend(cv.COMPONENT_SCHEMA)
 
 # --- BIND YAML CONFIG TO C++ CLASS ---
 async def to_code(config):
-    var = cg.new_Pvariable(config[CONF_ID])
-    await cg.register_component(var, config)
+    time_var = await cg.get_variable(config[CONF_TIME_ID])
 
-    cg.add(var.set_i2c_pin(config[CONF_I2C_PIN]))
-    cg.add(var.set_calibration(config[CONF_CALIBRATION]))
-    cg.add(var.set_daily_dose(config[CONF_DAILY_DOSE]))
+    # --- Create shared hub instance ---
+    hub = cg.new_Pvariable(config[CONF_ID])
+    await cg.register_component(hub, config)
 
-    for sched in config[CONF_SCHEDULE]:
-        cg.add(var.add_schedule(sched["hour"], sched["minute"]))
+    cal_btn = await cg.get_variable(config[CONF_CALIBRATE_BUTTON])
+    cal_num = await cg.get_variable(config[CONF_RESULT_NUMBER])
+    cal_sel = await cg.get_variable(config[CONF_TARGET_SELECT])
+    cg.add(hub.set_calibration_entities(cal_sel, cal_num, cal_btn))
 
-    time_var = await cg.get_variable("rtc_time")  # Must be declared in YAML
-    cg.add(var.set_time_source(time_var))
+    offset_min = config[CONF_OFFSET_MIN]
+    auto_index = 0
+
+    for pump_conf in config[CONF_PUMPS]:
+        var = cg.new_Pvariable(pump_conf[CONF_ID])
+        await cg.register_component(var, pump_conf)
+        cg.add(var.set_time_source(time_var))
+
+        output_pin = await cg.get_variable(pump_conf[CONF_PUMP_OUTPUT])
+        cg.add(var.set_output_pin(output_pin))
+        cg.add(var.set_calibration(pump_conf[CONF_CALIBRATION]))
+        cg.add(var.set_daily_dose(pump_conf[CONF_DAILY_DOSE]))
+
+        # --- Register pump into hub with its string ID ---
+        cg.add(hub.register_pump(str(pump_conf[CONF_ID].id), var))
+
+        sched = pump_conf[CONF_SCHEDULE]
+        if sched == "auto":
+            total_ml = pump_conf[CONF_DAILY_DOSE]
+            min_dose = pump_conf.get(CONF_MIN_DOSE, 10.0)
+            num_slots = max(1, int(total_ml / min_dose))
+
+            for i in range(num_slots):
+                interval = 24 * 60 // num_slots
+                total_min = i * interval + auto_index * offset_min
+                hour = (total_min // 60) % 24
+                minute = total_min % 60
+                cg.add(var.add_schedule(hour, minute))
+
+            auto_index += 1
+        else:
+            for sched_entry in sched:
+                cg.add(var.add_schedule(sched_entry["hour"], sched_entry["minute"]))
