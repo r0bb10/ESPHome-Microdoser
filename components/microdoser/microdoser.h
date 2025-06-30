@@ -51,6 +51,9 @@ class MicrodoserPump : public Component {
   // --- Scheduler check function ---
   void check_schedule();
 
+  // --- Watchdog grace period ---
+  void set_watchdog_grace(uint16_t minutes) { this->max_late_minutes_ = minutes; }
+
  protected:
   // --- Config parameters ---
   output::BinaryOutput *output_{nullptr};
@@ -63,6 +66,7 @@ class MicrodoserPump : public Component {
   ESPPreferenceObject pref_calibration_;
   ESPPreferenceObject pref_last_calibration_;
   uint32_t last_calibrated_epoch_{0};
+  uint16_t max_late_minutes_{0};
 
   // --- One pump can have multiple dose slots per day ---
   struct ScheduleEntry {
@@ -94,6 +98,7 @@ class MicrodoserHub : public Component {
   void apply_calibration_result(float measured);
   void set_prime_button(button::Button *btn);
   void start_prime();
+  void set_watchdog_minutes(uint16_t minutes) { this->watchdog_minutes_ = minutes; }
 
  protected:
   std::map<std::string, MicrodoserPump *> pumps_;
@@ -101,6 +106,7 @@ class MicrodoserHub : public Component {
   number::Number *result_input_{nullptr};
   button::Button *button_{nullptr};
   button::Button *prime_button_{nullptr};
+  uint16_t watchdog_minutes_{0};
 };
 
 }  // namespace microdoser

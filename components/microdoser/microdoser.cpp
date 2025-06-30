@@ -163,22 +163,50 @@ void MicrodoserPump::add_schedule(uint8_t hour, uint8_t minute) {
   schedules_.push_back(ScheduleEntry{hour, minute});
 }
 
-// --- Periodic scheduler check ---  
+// --- Scheduler logic: run this periodically instead of loop() ---
 void MicrodoserPump::check_schedule() {
   auto now = this->time_->now();
   if (!now.is_valid())
     return;
 
   if (this->enable_switch_ && !this->enable_switch_->state) {
-    ESP_LOGD(TAG, "Pump %u is disabled. Skipping scheduler check.", this->index_);
+    ESP_LOGD(TAG, "Pump %u is disabled. Skipping schedule check.", this->index_);
     return;
   }
 
-  for (auto &entry : schedules_) {
-    if (entry.hour == now.hour && entry.minute == now.minute && !has_dosed_today(entry)) {
-      ESP_LOGI(TAG, "Dosing %f mL", dose_total_ml_);
-      dose_now();
-      mark_dosed(entry);
+  for (auto &entry : this->schedules_) {
+    bool already_dosed = this->has_dosed_today(entry);
+
+    ESP_LOGD(TAG, "Pump %u checking %02d:%02d — already dosed: %s",
+             this->index_, entry.hour, entry.minute,
+             already_dosed ? "yes" : "no");
+
+    if (already_dosed)
+      continue;
+
+    // --- On-time match ---
+    if (entry.hour == now.hour && entry.minute == now.minute) {
+      ESP_LOGI(TAG, "Scheduled dosing %f mL", dose_total_ml_);
+      this->dose_now();
+      this->mark_dosed(entry);
+      continue;
+    }
+
+    // --- Watchdog disabled: behave as if feature does not exist ---
+    if (this->max_late_minutes_ == 0)
+      continue;
+
+    // --- Watchdog recovery: late but still acceptable ---
+    int sched_min = entry.hour * 60 + entry.minute;
+    int curr_min = now.hour * 60 + now.minute;
+    int delta = curr_min - sched_min;
+
+    if (delta > 0 && delta <= this->max_late_minutes_) {
+      ESP_LOGW(TAG, "Recovered late dose (%d min late)", delta);
+      this->dose_now();
+      this->mark_dosed(entry);
+    } else if (delta > this->max_late_minutes_) {
+      ESP_LOGW(TAG, "Missed dose too old, skipping %02d:%02d", entry.hour, entry.minute);
     }
   }
 }

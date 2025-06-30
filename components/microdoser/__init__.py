@@ -22,6 +22,7 @@ CONF_RESULT_NUMBER = "calibration_result_ml"
 CONF_CALIBRATE_BUTTON = "calibrate_pump_btn"
 CONF_ENABLE_SWITCH = "enable_switch_id"
 CONF_PRIME_BUTTON = "prime_pump_btn"
+CONF_WATCHDOG_MODE = "watchdog"
 
 # --- DECLARE NAMESPACE + CLASS ---
 microdoser_ns = cg.esphome_ns.namespace("microdoser")
@@ -43,6 +44,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Required(CONF_TARGET_SELECT): cv.use_id(select.Select),
     cv.Required(CONF_PRIME_BUTTON): cv.use_id(button.Button),
     cv.Optional(CONF_OFFSET_MIN, default=5): cv.positive_int,
+    cv.Optional(CONF_WATCHDOG_MODE, default="strict"): cv.one_of("strict", "recover", "off", lower=True),
     cv.Required(CONF_PUMPS): cv.ensure_list(
         cv.Schema({
             cv.GenerateID(): cv.declare_id(MicrodoserPump),
@@ -78,10 +80,23 @@ async def to_code(config):
     offset_min = config[CONF_OFFSET_MIN]
     auto_index = 0
 
+    watchdog_mode = config[CONF_WATCHDOG_MODE]
+    if watchdog_mode == "strict":
+        grace_minutes = 0
+    elif watchdog_mode == "recover":
+        grace_minutes = 10
+    elif watchdog_mode == "off":
+        grace_minutes = 1440  # 24 hours
+    else:
+        grace_minutes = 0  # fallback safety
+
+    cg.add(hub.set_watchdog_minutes(grace_minutes))
+
     for pump_conf in config[CONF_PUMPS]:
         var = cg.new_Pvariable(pump_conf[CONF_ID])
         await cg.register_component(var, pump_conf)
         cg.add(var.set_time_source(time_var))
+        cg.add(var.set_watchdog_grace(grace_minutes))
 
         output_pin = await cg.get_variable(pump_conf[CONF_PUMP_OUTPUT])
         cg.add(var.set_output_pin(output_pin))
