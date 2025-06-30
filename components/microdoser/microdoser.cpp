@@ -76,6 +76,27 @@ void MicrodoserHub::apply_calibration_result(float measured) {
   it->second->update_calibration_from_result(measured);
 }
 
+// --- Store Prime button reference ---
+void MicrodoserHub::set_prime_button(button::Button *btn) {
+  this->prime_button_ = btn;
+}
+
+// --- Run prime dose on selected pump from dropdown selector ---
+void MicrodoserHub::start_prime() {
+  if (!this->selector_)
+    return;
+
+  const std::string &target = this->selector_->state;
+  auto it = this->pumps_.find(target);
+  if (it == this->pumps_.end()) {
+    ESP_LOGW(TAG, "Pump '%s' not found for priming", target.c_str());
+    return;
+  }
+
+  ESP_LOGI(TAG, "Priming pump '%s'", target.c_str());
+  it->second->prime();
+}
+
 // --- Save calibration persistently ---
 void MicrodoserPump::store_calibration(float new_value) {
   this->calibration_ = new_value;
@@ -123,6 +144,11 @@ void MicrodoserPump::loop() {
   if (!now.is_valid())
     return;
 
+  if (this->enable_switch_ && !this->enable_switch_->state) {
+    ESP_LOGI(TAG, "Pump %u is disabled. Skipping dosing.", this->index_);
+    return;
+  }
+
   for (auto &entry : schedules_) {
     if (entry.hour == now.hour && entry.minute == now.minute && !has_dosed_today(entry)) {
       ESP_LOGI(TAG, "Dosing %f mL", dose_total_ml_);
@@ -130,6 +156,23 @@ void MicrodoserPump::loop() {
       mark_dosed(entry);
     }
   }
+}
+
+// --- Run pump manually for 10 seconds (priming, no dosing state written) ---
+void MicrodoserPump::prime() {
+  if (!this->output_) {
+    ESP_LOGW(TAG, "Prime failed: no output defined for pump %u", this->index_);
+    return;
+  }
+
+  const int prime_ms = 10000;  // default 10s
+  ESP_LOGI(TAG, "Priming pump %u for %d ms", this->index_, prime_ms);
+
+  this->output_->turn_on();
+  delay(prime_ms);
+  this->output_->turn_off();
+
+  ESP_LOGI(TAG, "Pump %u priming complete", this->index_);
 }
 
 // --- Add a scheduled dose time ---

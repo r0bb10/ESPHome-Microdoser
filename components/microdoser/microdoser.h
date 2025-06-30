@@ -5,6 +5,7 @@
 #include "esphome/components/select/select.h"
 #include "esphome/components/number/number.h"
 #include "esphome/components/button/button.h"
+#include "esphome/components/switch/switch.h"
 #include "esphome/components/output/binary_output.h"
 #include "esphome/components/time/real_time_clock.h"
 
@@ -44,10 +45,15 @@ class MicrodoserPump : public Component {
   void update_calibration_from_result(float measured_ml);
   uint32_t get_last_calibrated_timestamp() const { return last_calibrated_epoch_; }
 
+   // --- Manual pump override ---
+  void set_enable_switch(switch_::Switch *sw) { this->enable_switch_ = sw; }
+  void prime();
+
  protected:
   // --- Config parameters ---
   output::BinaryOutput *output_{nullptr};
   time::RealTimeClock *time_{nullptr};
+  switch_::Switch *enable_switch_{nullptr};
   float calibration_{1.0f};
   float dose_total_ml_{0.0f};
   uint8_t index_{0};
@@ -84,12 +90,15 @@ class MicrodoserHub : public Component {
   void register_pump(const std::string &id, MicrodoserPump *pump);
   void start_calibration();
   void apply_calibration_result(float measured);
+  void set_prime_button(button::Button *btn);
+  void start_prime();
 
  protected:
   std::map<std::string, MicrodoserPump *> pumps_;
   select::Select *selector_{nullptr};
   number::Number *result_input_{nullptr};
   button::Button *button_{nullptr};
+  button::Button *prime_button_{nullptr};
 };
 
 }  // namespace microdoser

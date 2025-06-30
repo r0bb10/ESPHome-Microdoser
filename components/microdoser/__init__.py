@@ -2,8 +2,7 @@ from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import time as time_
-from esphome.components import output
-from esphome.components import button, number, select
+from esphome.components import button, number, select, switch, output
 from esphome.const import CONF_ID, CONF_TIME_ID
 
 CODEOWNERS = ["@r0bb10"]
@@ -21,6 +20,8 @@ CONF_OFFSET_MIN = "dosing_offset_min"
 CONF_TARGET_SELECT = "calibration_target"
 CONF_RESULT_NUMBER = "calibration_result_ml"
 CONF_CALIBRATE_BUTTON = "calibrate_pump_btn"
+CONF_ENABLE_SWITCH = "enable_switch_id"
+CONF_PRIME_BUTTON = "prime_pump_btn"
 
 # --- DECLARE NAMESPACE + CLASS ---
 microdoser_ns = cg.esphome_ns.namespace("microdoser")
@@ -40,6 +41,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Required(CONF_CALIBRATE_BUTTON): cv.use_id(button.Button),
     cv.Required(CONF_RESULT_NUMBER): cv.use_id(number.Number),
     cv.Required(CONF_TARGET_SELECT): cv.use_id(select.Select),
+    cv.Required(CONF_PRIME_BUTTON): cv.use_id(button.Button),
     cv.Optional(CONF_OFFSET_MIN, default=5): cv.positive_int,
     cv.Required(CONF_PUMPS): cv.ensure_list(
         cv.Schema({
@@ -52,6 +54,7 @@ CONFIG_SCHEMA = cv.Schema({
                 cv.one_of("auto", lower=True)
             ),
             cv.Optional(CONF_MIN_DOSE): cv.positive_float,
+            cv.Optional(CONF_ENABLE_SWITCH): cv.use_id(switch.Switch),
         })
     )
 }).extend(cv.COMPONENT_SCHEMA)
@@ -67,7 +70,10 @@ async def to_code(config):
     cal_btn = await cg.get_variable(config[CONF_CALIBRATE_BUTTON])
     cal_num = await cg.get_variable(config[CONF_RESULT_NUMBER])
     cal_sel = await cg.get_variable(config[CONF_TARGET_SELECT])
+    prime_btn = await cg.get_variable(config[CONF_PRIME_BUTTON])
+
     cg.add(hub.set_calibration_entities(cal_sel, cal_num, cal_btn))
+    cg.add(hub.set_prime_button(prime_btn))
 
     offset_min = config[CONF_OFFSET_MIN]
     auto_index = 0
@@ -81,6 +87,11 @@ async def to_code(config):
         cg.add(var.set_output_pin(output_pin))
         cg.add(var.set_calibration(pump_conf[CONF_CALIBRATION]))
         cg.add(var.set_daily_dose(pump_conf[CONF_DAILY_DOSE]))
+
+        # --- Optional per-pump enable switch ---
+        if CONF_ENABLE_SWITCH in pump_conf:
+            sw = await cg.get_variable(pump_conf[CONF_ENABLE_SWITCH])
+            cg.add(var.set_enable_switch(sw))
 
         # --- Register pump into hub with its string ID ---
         cg.add(hub.register_pump(str(pump_conf[CONF_ID].id), var))
