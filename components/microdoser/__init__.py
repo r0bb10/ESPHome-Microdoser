@@ -49,7 +49,6 @@ CONFIG_SCHEMA = cv.Schema({
         cv.Schema({
             cv.GenerateID(): cv.declare_id(MicrodoserPump),
             cv.Required(CONF_PUMP_OUTPUT): cv.use_id(output.BinaryOutput),
-            cv.Required(CONF_CALIBRATION): cv.positive_float,
             cv.Required(CONF_DAILY_DOSE): cv.positive_float,
             cv.Required(CONF_SCHEDULE): cv.Any(
                 cv.ensure_list(SCHEDULE_SCHEMA),
@@ -100,7 +99,6 @@ async def to_code(config):
 
         output_pin = await cg.get_variable(pump_conf[CONF_PUMP_OUTPUT])
         cg.add(var.set_output_pin(output_pin))
-        cg.add(var.set_calibration(pump_conf[CONF_CALIBRATION]))
         cg.add(var.set_daily_dose(pump_conf[CONF_DAILY_DOSE]))
 
         # --- Optional per-pump enable switch ---

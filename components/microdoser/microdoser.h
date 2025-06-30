@@ -30,7 +30,6 @@ class MicrodoserPump : public Component {
 
   // --- Setters from YAML config ---
   void set_output_pin(output::BinaryOutput *output) { output_ = output; }
-  void set_calibration(float ml_per_sec) { calibration_ = ml_per_sec; }
   void set_daily_dose(float ml) { dose_total_ml_ = ml; }
   void add_schedule(uint8_t hour, uint8_t minute);  // Adds a dose time
   void set_time_source(time::RealTimeClock *time) { time_ = time; }
