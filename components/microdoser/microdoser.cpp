@@ -30,6 +30,9 @@ void MicrodoserPump::setup() {
   uint32_t ts_key = fnv1_hash("cal_time_" + this->id_string_);
   this->pref_last_calibration_ = global_preferences->make_preference<uint32_t>(ts_key);
   this->pref_last_calibration_.load(&this->last_calibrated_epoch_);
+
+  // --- Register periodic schedule checker ---
+  this->set_interval(30000, [this]() { this->check_schedule(); });  // every 30 seconds
 }
 
 // --- Set selector, number input, and button references ---
@@ -138,26 +141,6 @@ void MicrodoserPump::update_calibration_from_result(float actual_ml) {
   }
 }
 
-// --- Main loop: runs every cycle (~ms scale) ---
-void MicrodoserPump::loop() {
-  auto now = this->time_->now();
-  if (!now.is_valid())
-    return;
-
-  if (this->enable_switch_ && !this->enable_switch_->state) {
-    ESP_LOGI(TAG, "Pump %u is disabled. Skipping dosing.", this->index_);
-    return;
-  }
-
-  for (auto &entry : schedules_) {
-    if (entry.hour == now.hour && entry.minute == now.minute && !has_dosed_today(entry)) {
-      ESP_LOGI(TAG, "Dosing %f mL", dose_total_ml_);
-      dose_now();
-      mark_dosed(entry);
-    }
-  }
-}
-
 // --- Run pump manually for 10 seconds (priming, no dosing state written) ---
 void MicrodoserPump::prime() {
   if (!this->output_) {
@@ -178,6 +161,26 @@ void MicrodoserPump::prime() {
 // --- Add a scheduled dose time ---
 void MicrodoserPump::add_schedule(uint8_t hour, uint8_t minute) {
   schedules_.push_back(ScheduleEntry{hour, minute});
+}
+
+// --- Periodic scheduler check ---  
+void MicrodoserPump::check_schedule() {
+  auto now = this->time_->now();
+  if (!now.is_valid())
+    return;
+
+  if (this->enable_switch_ && !this->enable_switch_->state) {
+    ESP_LOGD(TAG, "Pump %u is disabled. Skipping scheduler check.", this->index_);
+    return;
+  }
+
+  for (auto &entry : schedules_) {
+    if (entry.hour == now.hour && entry.minute == now.minute && !has_dosed_today(entry)) {
+      ESP_LOGI(TAG, "Dosing %f mL", dose_total_ml_);
+      dose_now();
+      mark_dosed(entry);
+    }
+  }
 }
 
 // --- Convert ml → duration, pulse pump ---

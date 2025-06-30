@@ -27,7 +27,6 @@ class MicrodoserPump : public Component {
  public:
   // ESPHome setup and loop lifecycle
   void setup() override;
-  void loop() override;
 
   // --- Setters from YAML config ---
   void set_output_pin(output::BinaryOutput *output) { output_ = output; }
@@ -48,6 +47,9 @@ class MicrodoserPump : public Component {
    // --- Manual pump override ---
   void set_enable_switch(switch_::Switch *sw) { this->enable_switch_ = sw; }
   void prime();
+
+  // --- Scheduler check function ---
+  void check_schedule();
 
  protected:
   // --- Config parameters ---
