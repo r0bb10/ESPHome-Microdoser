@@ -42,6 +42,7 @@ class MicrodoserPump : public Component {
   void load_calibration();  // Not used yet, but useful if split needed
   void run_calibration_dose();
   void update_calibration_from_result(float measured_ml);
+  uint32_t get_last_calibrated_timestamp() const { return last_calibrated_epoch_; }
 
  protected:
   // --- Config parameters ---
@@ -52,6 +53,8 @@ class MicrodoserPump : public Component {
   uint8_t index_{0};
   std::string id_string_;  // --- EEPROM-safe persistent key
   ESPPreferenceObject pref_calibration_;
+  ESPPreferenceObject pref_last_calibration_;
+  uint32_t last_calibrated_epoch_{0};
 
   // --- One pump can have multiple dose slots per day ---
   struct ScheduleEntry {

@@ -25,6 +25,11 @@ void MicrodoserPump::setup() {
     this->pref_calibration_.save(&this->calibration_);
     ESP_LOGI(TAG, "Pump %u saved initial calibration: %.3f ml/sec", this->index_, this->calibration_);
   }
+
+  // --- Load last calibration timestamp (if available) ---
+  uint32_t ts_key = fnv1_hash("cal_time_" + this->id_string_);
+  this->pref_last_calibration_ = global_preferences->make_preference<uint32_t>(ts_key);
+  this->pref_last_calibration_.load(&this->last_calibrated_epoch_);
 }
 
 // --- Set selector, number input, and button references ---
@@ -98,8 +103,18 @@ void MicrodoserPump::update_calibration_from_result(float actual_ml) {
     ESP_LOGW(TAG, "Invalid calibration result (%.2f mL). Ignoring.", actual_ml);
     return;
   }
+
   float new_cal = (10.0f / actual_ml) * this->calibration_;
   this->store_calibration(new_cal);
+
+  // --- Store timestamp of this calibration event ---
+  if (this->time_ && this->time_->now().is_valid()) {
+    this->last_calibrated_epoch_ = this->time_->now().timestamp;
+    this->pref_last_calibration_.save(&this->last_calibrated_epoch_);
+    ESP_LOGI(TAG, "Pump %u calibration timestamp saved: %u", this->index_, this->last_calibrated_epoch_);
+  } else {
+    ESP_LOGW(TAG, "Time invalid — could not store calibration timestamp.");
+  }
 }
 
 // --- Main loop: runs every cycle (~ms scale) ---
